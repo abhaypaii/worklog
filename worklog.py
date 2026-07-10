@@ -33,7 +33,6 @@ career tracking, keyword search, and markdown export.
 
 import argparse
 import datetime as dt
-
 import json
 import math
 import os
@@ -182,7 +181,8 @@ def embed_text(text):
 
 def chat(prompt):
     out = ollama("/api/generate", {"model": CHAT_MODEL, "prompt": prompt,
-                                   "stream": False, "format": "json", 'think':False,
+                                   "stream": False, "format": "json",
+                                   "think": False,   # qwen3-style thinking breaks JSON mode
                                    "options": {"temperature": 0.2}})
     return out["response"]
 
@@ -331,7 +331,20 @@ def cmd_triage(args):
                   .replace("<<DATE>>", r["entry_date"])
                   .replace("<<TEXT>>", r["raw_text"]))
         try:
-            events = json.loads(chat(prompt))
+            resp = chat(prompt).strip()
+            # tolerate markdown fences and stray prose around the JSON
+            if resp.startswith("```"):
+                resp = resp.strip("`")
+                if resp.startswith("json"):
+                    resp = resp[4:]
+            start = resp.find("[")
+            start_obj = resp.find("{")
+            if start == -1 or (start_obj != -1 and start_obj < start):
+                start = start_obj
+            end = max(resp.rfind("]"), resp.rfind("}"))
+            if start == -1 or end == -1:
+                raise ValueError(f"no JSON found in response: {resp[:120]!r}")
+            events = json.loads(resp[start:end + 1])
             if isinstance(events, dict):     # some models wrap: {"events": [...]}
                 events = events.get("events", [])
         except Exception as e:
@@ -349,7 +362,8 @@ def cmd_triage(args):
                  1 if ev.get("resume_worthy") else 0))
         conn.execute("UPDATE raw_entries SET processed=1 WHERE id=?", (r["id"],))
         conn.commit()
-        print(f"  entry {r['id']}: {len(events)} event(s) extracted")
+        note = "" if events else f"   [model said: {resp[:100]!r}]"
+        print(f"  entry {r['id']}: {len(events)} event(s) extracted{note}")
     print("Done. Run `worklog embed` to make them searchable.")
 
 
