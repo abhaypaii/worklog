@@ -88,6 +88,52 @@ worklog status    # creates the database on first run
 
 Any Ollama models work — set `WORKLOG_CHAT_MODEL` and `WORKLOG_EMBED_MODEL` to your preference. If you change the embedding model later, re-embed everything (embeddings from different models are incompatible); see `CHEATSHEET.md`.
 
+### Windows setup
+
+Everything works on Windows — same script, same models. The differences are installation and shell configuration:
+
+```powershell
+# 1. Install Python 3.9+ (if not present) — https://python.org/downloads
+#    (check "Add python.exe to PATH" during install)
+
+# 2. Install Ollama — download the Windows installer from https://ollama.com/download
+#    (it runs as a background service automatically; no `ollama serve` needed)
+
+# 3. Pull the models (in PowerShell or Command Prompt)
+ollama pull nomic-embed-text:v1.5
+ollama pull qwen2.5:3b
+
+# 4. Clone the repo
+git clone git@github.com:abhaypaii/worklog.git
+```
+
+Then configure PowerShell (the equivalent of `.zshrc`). Open your profile:
+
+```powershell
+notepad $PROFILE    # creates the file if it doesn't exist
+```
+
+Add these lines (adjust paths to where you cloned):
+
+```powershell
+$env:WORKLOG_DB = "$HOME\Documents\worklog\worklog.db"
+$env:WORKLOG_EMBED_MODEL = "nomic-embed-text:v1.5"
+$env:WORKLOG_CHAT_MODEL = "qwen2.5:3b"
+function worklog { python "$HOME\worklog\worklog.py" @args }
+```
+
+Restart PowerShell (or run `. $PROFILE`), then:
+
+```powershell
+worklog status    # creates the database on first run
+```
+
+Notes for Windows users:
+- **Quoting**: PowerShell handles quotes differently — `worklog log "your text here"` works the same, but avoid unescaped `$` inside double quotes (PowerShell treats it as a variable; use single quotes for text containing `$`).
+- **sqlite3 CLI**: not bundled with Windows. For the maintenance commands in `CHEATSHEET.md`, either install it (`winget install SQLite.SQLite`) or use [DB Browser for SQLite](https://sqlitebrowser.org) — the GUI covers everything.
+- **Syncing the DB across machines**: point `WORKLOG_DB` at a OneDrive folder (e.g. `$HOME\OneDrive\worklog\worklog.db`) — same single-file sync pattern as iCloud, same rule: one machine writing at a time.
+- **WSL**: if you live in WSL, just follow the macOS/Linux instructions inside it — but note Ollama should run on the Windows side for GPU access, and `OLLAMA_URL` defaults to `http://localhost:11434`, which WSL2 reaches automatically in recent versions.
+
 ---
 
 ## Design principles
