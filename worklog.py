@@ -182,8 +182,8 @@ def embed_text(text):
 
 def chat(prompt):
     out = ollama("/api/generate", {"model": CHAT_MODEL, "prompt": prompt,
-                                   "stream": False, "format": "json",
-                                   "options": {"temperature": 0}})
+                                   "stream": False, "format": "json", 'think':False,
+                                   "options": {"temperature": 0.2}})
     return out["response"]
 
 
