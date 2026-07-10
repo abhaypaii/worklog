@@ -46,7 +46,7 @@ DB_PATH = os.environ.get(
 )
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.environ.get("WORKLOG_EMBED_MODEL", "nomic-embed-text:v1.5")
-CHAT_MODEL = os.environ.get("WORKLOG_CHAT_MODEL", "qwen3:4b")
+CHAT_MODEL = os.environ.get("WORKLOG_CHAT_MODEL", "qwen2.5:3b")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
@@ -188,6 +188,13 @@ def chat(prompt):
                                    "think": False,   # qwen3-style thinking breaks JSON mode
                                    "options": {"temperature": 0}})
     return out["response"]
+ 
+ 
+def chat_prose(prompt):
+    out = ollama("/api/generate", {"model": CHAT_MODEL, "prompt": prompt,
+                                   "stream": False, "think": False,
+                                   "options": {"temperature": 0.3}})
+    return out["response"].strip()
  
  
 def cosine(a, b):
@@ -419,6 +426,53 @@ def cmd_search(args):
         print(f"{score:.2f}  {r['event_date']}{comp} ({r['type']}) {r['summary']}{impact}")
  
  
+def _top_events(conn, query_vec, k):
+    rows = conn.execute(
+        """SELECT e.event_date, e.type, e.summary, e.detail, e.impact,
+                  e.project, e.embedding, c.name company, ro.title role
+           FROM events e
+           LEFT JOIN companies c ON c.id=e.company_id
+           LEFT JOIN roles ro ON ro.id=e.role_id
+           WHERE e.embedding IS NOT NULL""").fetchall()
+    scored = sorted(((cosine(query_vec, json.loads(r["embedding"])), r) for r in rows),
+                    key=lambda t: -t[0])
+    return scored[:k]
+ 
+ 
+def cmd_ask(args):
+    need_ollama()
+    conn = db()
+    q = embed_text(args.question)
+    hits = _top_events(conn, q, args.top)
+    if not hits:
+        sys.exit("Nothing embedded yet — run `worklog triage && worklog embed` first.")
+    ctx_lines = []
+    for score, r in hits:
+        parts = [f"{r['event_date']}", f"[{r['company']}]" if r["company"] else "",
+                 f"({r['type']})", r["summary"]]
+        if r["detail"]:
+            parts.append(f"Detail: {r['detail']}")
+        if r["impact"]:
+            parts.append(f"Impact: {r['impact']}")
+        if r["project"]:
+            parts.append(f"Project: {r['project']}")
+        ctx_lines.append("- " + " ".join(p for p in parts if p))
+    prompt = (
+        "You are answering questions about the user's work history using their "
+        "journal entries below. Answer the question directly and conversationally "
+        "in plain prose, addressing the user as 'you'. Ground every claim in the "
+        "entries; mention dates when relevant. If the entries do not contain the "
+        "answer, say so plainly — never invent.\n\n"
+        f"JOURNAL ENTRIES:\n{chr(10).join(ctx_lines)}\n\n"
+        f"QUESTION: {args.question}\n\nANSWER:"
+    )
+    print(chat_prose(prompt))
+    if args.sources:
+        print("\n--- sources ---")
+        for score, r in hits:
+            print(f"{score:.2f}  {r['event_date']} ({r['type']}) {r['summary']}")
+ 
+ 
 def cmd_export(args):
     conn = db()
     where, params = _entry_filter(args, alias="e.event_date")
@@ -511,6 +565,12 @@ def main():
     s.add_argument("query")
     s.add_argument("--top", type=int, default=5)
     s.set_defaults(fn=cmd_search)
+ 
+    s = sub.add_parser("ask", help="ask a question, answered in prose from your entries (Ollama)")
+    s.add_argument("question")
+    s.add_argument("--top", type=int, default=8, help="how many events to retrieve")
+    s.add_argument("--sources", action="store_true", help="also show retrieved events")
+    s.set_defaults(fn=cmd_ask)
  
     s = sub.add_parser("export", help="markdown report of events")
     s.add_argument("--since"); s.add_argument("--until")
