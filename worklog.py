@@ -386,16 +386,16 @@ def cmd_embed(args):
     need_ollama()
     conn = db()
     ev = conn.execute("SELECT id, summary, detail FROM events WHERE embedding IS NULL").fetchall()
-    raw = conn.execute("SELECT id, raw_text FROM raw_entries WHERE embedding IS NULL").fetchall()
     for r in ev:
         text = f"{r['summary']} {r['detail'] or ''}"
         conn.execute("UPDATE events SET embedding=? WHERE id=?",
                      (json.dumps(embed_text(text)), r["id"]))
-    for r in raw:
-        conn.execute("UPDATE raw_entries SET embedding=? WHERE id=?",
-                     (json.dumps(embed_text(r["raw_text"])), r["id"]))
     conn.commit()
-    print(f"Embedded {len(ev)} event(s) and {len(raw)} raw entr(ies).")
+    n_un = conn.execute("SELECT COUNT(*) c FROM raw_entries WHERE processed=0").fetchone()["c"]
+    print(f"Embedded {len(ev)} event(s).")
+    if n_un:
+        print(f"({n_un} raw entr(ies) not yet triaged — run `worklog triage` first, "
+              f"then embed again.)")
  
  
 def cmd_search(args):
